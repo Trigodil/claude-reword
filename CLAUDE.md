@@ -14,7 +14,7 @@ From the repo root, run:
 
 It copies into `~/.claude/`:
 - `hooks/paraphrase_review.py` and `hooks/reword_prompt.txt`
-- `commands/reword.md` and `commands/reword_paraphrased.md`
+- `commands/reword.md`
 - `hooks/reword.env`, created from the empty template **only if the user has none yet**. An existing one is never overwritten.
 
 Requires `python3` (standard library only, nothing to pip install). If `python3` is missing, tell the user to install it.
@@ -99,5 +99,4 @@ Only do this if the user asks. It makes every Write/Edit of a `.md`, `.tex`, `.t
 | `hooks/reword_prompt.txt` | Editable rewrite prompt |
 | `hooks/reword.env` | Empty key template, copied to `~/.claude/hooks/` by `install.sh` |
 | `commands/reword.md` | The `/reword` command |
-| `commands/reword_paraphrased.md` | Variant of the same command with alternate wording |
 | `install.sh` | Copies everything into `~/.claude/` |

@@ -8,3 +8,6 @@ settings.local.json
 *.pem
 __pycache__/
 *.pyc
+
+# Output of the optional auto-paraphrase hook
+*_paraphrased.*
