@@ -20,7 +20,7 @@ rewrite is discarded if they change.
    This copies into `~/.claude/`:
    - `hooks/paraphrase_review.py`, `hooks/reword_prompt.txt`
    - `commands/reword.md`, `commands/reword_paraphrased.md`
-   - `hooks/reword.env` created from `hooks/reword.env` (only if missing; an existing one is never overwritten)
+   - `hooks/reword.env` (the empty template, copied only if you have none yet; an existing one is never overwritten)
 
 2. **Add an API key.** The user edits `~/.claude/hooks/reword.env` themselves
    (Claude must not open it) and fills in at least one of `OPENAI_API_KEY`,
