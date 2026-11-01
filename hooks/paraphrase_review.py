@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: after Claude edits a prose file (.md, .tex, .txt, .rst),
+"""Reword tool for Claude Code.
+
+CLI (used by the /reword command):
+  paraphrase_review.py --reword IN OUT
+    IN  = .txt/.md text file  -> OUT may be text, or .docx (a new Word file is built)
+    IN  = .docx               -> OUT must be .docx (paragraph text is reworded in place,
+                                 styles/tables/images/layout are kept)
+
+Hook mode (PostToolUse): after Claude edits a prose file (.md, .txt, .rst),
 send it to another LLM API to be reworded, save the result as
 <name>_paraphrased<ext> next to the original, and show a diff.
 
@@ -19,8 +27,10 @@ import os
 import re
 import sys
 import urllib.request
+import zipfile
+from xml.sax.saxutils import escape, unescape
 
-EXTS = {".md", ".tex", ".txt", ".rst"}
+EXTS = {".md", ".txt", ".rst"}
 MAX_CHARS = 60000
 TIMEOUT = 50
 
@@ -34,8 +44,9 @@ DEFAULT_PROMPT = (
     "You are an editor. Reword and paraphrase the document below so the wording is "
     "natural and fits its context, while keeping the exact meaning. Keep every fact, "
     "number, name and claim unchanged, keep the length similar to the original (at most "
-    "10 to 15 percent longer or shorter), leave LaTeX commands, math, code and URLs "
-    "untouched, and return only the full reworded document."
+    "10 to 15 percent longer or shorter), leave code, numbers and URLs "
+    "untouched, keep any <<N>> paragraph markers exactly as they are, and return only "
+    "the full reworded document."
 )
 
 
@@ -116,19 +127,128 @@ def rewrite(text, name):
     return r["choices"][0]["message"]["content"]
 
 
-def tex_tokens(s):
-    """Commands and math that must survive a rewrite unchanged."""
-    cmds = re.findall(r"\\[A-Za-z]+\*?(?:\{[^{}]*\})?", s)
-    math = re.findall(r"\$[^$]+\$", s)
-    return sorted(cmds + math)
+def guard_tokens(s):
+    """Numbers and URLs that must survive a rewrite unchanged."""
+    s = re.sub(r"<<\d+>>", "", s)
+    return sorted(re.findall(r"https?://\S+|\d[\d,.]*\d|\d", s))
+
+
+# ---------------------------------------------------------------- .docx helpers
+P_RE = re.compile(r"<w:p[ >].*?</w:p>", re.S)
+T_RE = re.compile(r"(<w:t(?: [^>]*)?>)(.*?)(</w:t>)", re.S)
+
+
+def para_text(p_xml):
+    return unescape("".join(m.group(2) for m in T_RE.finditer(p_xml)))
+
+
+def set_para_text(p_xml, text):
+    """Put `text` in the first run's <w:t>, empty the others. Run/paragraph
+    properties (fonts, styles, alignment) are left exactly as they were."""
+    n = [0]
+
+    def sub(m):
+        n[0] += 1
+        if n[0] > 1:
+            return m.group(1) + m.group(3)
+        tag = m.group(1)
+        if "xml:space" not in tag:
+            tag = tag[:-1] + ' xml:space="preserve">'
+        return tag + escape(text) + m.group(3)
+
+    return T_RE.sub(sub, p_xml)
+
+
+def reword_docx(src, dst, provider):
+    with zipfile.ZipFile(src) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+        infos = z.infolist()
+        blobs = {i.filename: z.read(i.filename) for i in infos}
+    spans = [m for m in P_RE.finditer(xml) if para_text(m.group(0)).strip()]
+    if not spans:
+        print("no text found in the .docx")
+        sys.exit(0)
+    texts = [para_text(m.group(0)) for m in spans]
+    payload = "\n\n".join("<<%d>> %s" % (i, t) for i, t in enumerate(texts))
+    if len(payload) > MAX_CHARS:
+        print("too long to reword (%d chars, max %d)" % (len(payload), MAX_CHARS))
+        sys.exit(0)
+    try:
+        reply = rewrite(payload, provider)
+    except Exception as e:
+        print("%s call failed: %s" % (provider, e))
+        sys.exit(0)
+    parts = re.split(r"<<(\d+)>>", reply)
+    got = {}
+    for k in range(1, len(parts) - 1, 2):
+        got[int(parts[k])] = parts[k + 1].strip()
+    if sorted(got) != list(range(len(texts))):
+        print("rewrite lost or merged paragraphs, so it was discarded. Original left as is.")
+        sys.exit(0)
+    if guard_tokens("\n".join(texts)) != guard_tokens("\n".join(got[i] for i in range(len(texts)))):
+        print("rewrite changed numbers or URLs, so it was discarded. Original left as is.")
+        sys.exit(0)
+    out_xml, last = [], 0
+    for i, m in enumerate(spans):
+        out_xml.append(xml[last:m.start()])
+        out_xml.append(set_para_text(m.group(0), got[i]))
+        last = m.end()
+    out_xml.append(xml[last:])
+    blobs["word/document.xml"] = "".join(out_xml).encode("utf-8")
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in infos:
+            z.writestr(i.filename, blobs[i.filename])
+    print("[reworded with %s] saved to %s" % (provider, dst))
+
+
+NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+
+
+def build_docx(text, dst):
+    """Make a plain .docx from text. Blank lines separate paragraphs; a line
+    starting with '# ' becomes a bold heading."""
+    paras = []
+    for block in re.split(r"\n\s*\n", text.strip()):
+        block = block.strip("\n")
+        bold = block.startswith("# ")
+        if bold:
+            block = block[2:]
+        runs = '<w:br/>'.join(
+            '<w:t xml:space="preserve">%s</w:t>' % escape(line) for line in block.split("\n"))
+        rpr = "<w:rPr><w:b/><w:sz w:val=\"32\"/></w:rPr>" if bold else ""
+        paras.append("<w:p><w:r>%s%s</w:r></w:p>" % (rpr, runs))
+    doc = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+           '<w:document %s><w:body>%s</w:body></w:document>' % (NS, "".join(paras)))
+    types = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+             '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+             '<Default Extension="xml" ContentType="application/xml"/>'
+             '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+             '</Types>')
+    rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            '</Relationships>')
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", types)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("word/document.xml", doc)
 
 
 def reword_cli(path, out_path=None):
-    """/reword: reword the text in `path`; print it, or save it to `out_path`."""
+    """/reword: reword the file `path`; print the text, or save it to `out_path`."""
     provider = pick_provider()
     if not provider:
         print("no api my guy")
         sys.exit(0)
+    src_docx = path.lower().endswith(".docx")
+    out_docx = bool(out_path) and out_path.lower().endswith(".docx")
+    if src_docx:
+        if not out_docx:
+            print("a .docx input needs a .docx output path")
+            sys.exit(0)
+        reword_docx(path, out_path, provider)
+        return
     text = open(path, encoding="utf-8", errors="replace").read()
     if not text.strip():
         print("nothing to reword")
@@ -141,10 +261,14 @@ def reword_cli(path, out_path=None):
     except Exception as e:
         print("%s call failed: %s" % (provider, e))
         sys.exit(0)
-    if tex_tokens(text) != tex_tokens(new):
-        print("rewrite changed LaTeX commands or math, so it was discarded. "
+    if guard_tokens(text) != guard_tokens(new):
+        print("rewrite changed numbers or URLs, so it was discarded. "
               "Original left as is.")
         sys.exit(0)
+    if out_docx:
+        build_docx(new, out_path)
+        print("[reworded with %s] saved to %s" % (provider, out_path))
+        return
     if out_path:
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(new + "\n")
@@ -179,9 +303,8 @@ def main():
         new = rewrite(text, provider).strip("\n") + "\n"
     except Exception as e:
         out("paraphrase hook: %s call failed (%s)" % (provider, e))
-    if ext.lower() == ".tex" and tex_tokens(text) != tex_tokens(new):
-        out("paraphrase hook: rewrite changed LaTeX commands or math, discarded "
-            "(%s)" % os.path.basename(path))
+    if guard_tokens(text) != guard_tokens(new):
+        out("paraphrase hook: rewrite changed numbers or URLs, discarded (%s)" % os.path.basename(path))
     target = stem + "_paraphrased" + ext
     open(target, "w", encoding="utf-8").write(new)
     diff = list(difflib.unified_diff(
@@ -191,4 +314,5 @@ def main():
     out("Paraphrased with %s -> %s\n%s" % (provider, target, shown))
 
 
-main()
+if __name__ == "__main__":
+    main()
