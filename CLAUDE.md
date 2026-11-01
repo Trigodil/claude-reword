@@ -24,8 +24,9 @@ rewrite is discarded if they change.
 
 2. **Add an API key.** The user edits `~/.claude/hooks/reword.env` themselves
    (Claude must not open it) and fills in at least one of `OPENAI_API_KEY`,
-   `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`. Keys can alternatively be exported in the shell
-   that launches Claude Code. With no key set the script prints `no api my guy` and
+   `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`. Keys in this file take priority over any exported in
+   the shell, so a stale `OPENAI_API_KEY` in the environment can't shadow it. Shell keys are
+   only a fallback when the file has none. With no key set the script prints `no api my guy` and
    sends nothing anywhere.
 
 3. **Use it.** Restart Claude Code, then run `/reword <what to write>`, for example

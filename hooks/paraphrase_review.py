@@ -13,7 +13,7 @@ send it to another LLM API to be reworded, save the result as
 
 The original file is never modified. Code files are never touched.
 
-Config (environment variables, read from the shell that launches Claude Code):
+Config (keys come from hooks/reword.env first, then the shell environment):
   PARAPHRASE_PROVIDER   openai | deepseek | anthropic   (default: first one with a key)
   PARAPHRASE_MODEL      model name (defaults below)
   PARAPHRASE_BASE_URL   optional override of the API base URL
@@ -69,8 +69,9 @@ def out(msg=None):
 
 
 def load_key_file():
-    """Read API keys from ~/.claude/hooks/reword.env (KEY=value lines) when they
-    are not already set in the environment. Keeps keys out of settings.json."""
+    """Read API keys from ~/.claude/hooks/reword.env (KEY=value lines). Non-empty
+    values in this file take priority over keys already in the shell environment,
+    so a stale exported key can't shadow it. Keeps keys out of settings.json."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reword.env")
     try:
         for line in open(path, encoding="utf-8"):
@@ -79,7 +80,7 @@ def load_key_file():
                 continue
             k, v = line.split("=", 1)
             k, v = k.strip(), v.strip().strip("'\"")
-            if v and not os.environ.get(k):
+            if v:
                 os.environ[k] = v
     except OSError:
         pass
