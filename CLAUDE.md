@@ -1,6 +1,6 @@
 # reword-tool
 
-A Claude Code slash command (`/reword`) plus a Python script that sends prose or LaTeX
+A Claude Code slash command (`/reword`) plus a Python script that sends prose, LaTeX or Word (.docx) documents
 through an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, then delivers that
 version instead of Claude's own draft. LaTeX commands and math are checked and the
 rewrite is discarded if they change.
@@ -29,7 +29,7 @@ rewrite is discarded if they change.
    sends nothing anywhere.
 
 3. **Use it.** Restart Claude Code, then run `/reword <what to write>`, for example
-   `/reword one paragraph on jets` or `/reword intro section in paper.tex`.
+   `/reword one paragraph on jets` or `/reword intro section in paper.tex` or `/reword summary in report.docx`.
    Reword mode then stays on for the session; say "stop" to turn it off.
    Pick a provider/model by naming it in the request ("with deepseek-reasoner").
    Default is OpenAI `gpt-6-luna`; change the default table at the top of
@@ -58,6 +58,15 @@ rewrite is discarded if they change.
      }
    }
    ```
+
+## docx notes
+
+- Python 3 standard library only, no extra packages to install.
+- For an existing `.docx`, paragraph text goes into the first run of each paragraph, so mixed
+  formatting *inside* one paragraph (e.g. a single bold word) takes the first run's style.
+  Tables are reworded; headers, footers and footnotes are left alone.
+- For new content, `/reword ... in report.docx` builds a plain `.docx`. Output is always a new
+  file, and `/reword` asks before overwriting an existing one.
 
 ## Files
 

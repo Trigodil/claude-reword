@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reword tool for Claude Code.
+"""Reword tool for Claude Code (prose, LaTeX and Word .docx).
 
 CLI (used by the /reword command):
   paraphrase_review.py --reword IN OUT
@@ -7,7 +7,7 @@ CLI (used by the /reword command):
     IN  = .docx               -> OUT must be .docx (paragraph text is reworded in place,
                                  styles/tables/images/layout are kept)
 
-Hook mode (PostToolUse): after Claude edits a prose file (.md, .txt, .rst),
+Hook mode (PostToolUse): after Claude edits a prose file (.md, .tex, .txt, .rst),
 send it to another LLM API to be reworded, save the result as
 <name>_paraphrased<ext> next to the original, and show a diff.
 
@@ -30,7 +30,7 @@ import urllib.request
 import zipfile
 from xml.sax.saxutils import escape, unescape
 
-EXTS = {".md", ".txt", ".rst"}
+EXTS = {".md", ".tex", ".txt", ".rst"}
 MAX_CHARS = 60000
 TIMEOUT = 50
 
@@ -44,7 +44,7 @@ DEFAULT_PROMPT = (
     "You are an editor. Reword and paraphrase the document below so the wording is "
     "natural and fits its context, while keeping the exact meaning. Keep every fact, "
     "number, name and claim unchanged, keep the length similar to the original (at most "
-    "10 to 15 percent longer or shorter), leave code, numbers and URLs "
+    "10 to 15 percent longer or shorter), leave LaTeX commands, math, code and URLs "
     "untouched, keep any <<N>> paragraph markers exactly as they are, and return only "
     "the full reworded document."
 )
@@ -125,6 +125,13 @@ def rewrite(text, name):
                       {"role": "user", "content": text}]},
     )
     return r["choices"][0]["message"]["content"]
+
+
+def tex_tokens(s):
+    """LaTeX commands and math that must survive a rewrite unchanged."""
+    cmds = re.findall(r"\\[A-Za-z]+\*?(?:\{[^{}]*\})?", s)
+    math = re.findall(r"\$[^$]+\$", s)
+    return sorted(cmds + math)
 
 
 def guard_tokens(s):
@@ -261,6 +268,10 @@ def reword_cli(path, out_path=None):
     except Exception as e:
         print("%s call failed: %s" % (provider, e))
         sys.exit(0)
+    if tex_tokens(text) != tex_tokens(new):
+        print("rewrite changed LaTeX commands or math, so it was discarded. "
+              "Original left as is.")
+        sys.exit(0)
     if guard_tokens(text) != guard_tokens(new):
         print("rewrite changed numbers or URLs, so it was discarded. "
               "Original left as is.")
@@ -303,6 +314,9 @@ def main():
         new = rewrite(text, provider).strip("\n") + "\n"
     except Exception as e:
         out("paraphrase hook: %s call failed (%s)" % (provider, e))
+    if tex_tokens(text) != tex_tokens(new):
+        out("paraphrase hook: rewrite changed LaTeX commands or math, discarded "
+            "(%s)" % os.path.basename(path))
     if guard_tokens(text) != guard_tokens(new):
         out("paraphrase hook: rewrite changed numbers or URLs, discarded (%s)" % os.path.basename(path))
     target = stem + "_paraphrased" + ext

@@ -2,10 +2,11 @@
 
 A `/reword` slash command for [Claude Code](https://claude.com/claude-code), plus the small Python tool behind it.
 
-You ask Claude to write something (an essay paragraph, notes, a LaTeX section). Instead of showing Claude's own draft, it sends the draft to an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, and delivers that version, either in chat or straight into a file like `paper.tex`.
+You ask Claude to write something (an essay paragraph, notes, a Word document). Instead of showing Claude's own draft, it sends the draft to an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, and delivers that version, either in chat or straight into a file like `report.docx`.
 
 - Keeps facts, numbers, code, URLs and meaning unchanged.
-- For LaTeX, it checks that every command and math expression survived. If not, the rewrite is discarded.
+- **Word (.docx) support:** builds a new `.docx`, or rewords an existing one in place, keeping styles, tables, images and layout.
+- It checks that numbers, URLs and code survived. If not, the rewrite is discarded.
 - Reword mode stays on for the session until you say "stop".
 - With no API key set, it prints `no api my guy` and sends nothing anywhere.
 - An optional hook can also make a `_paraphrased` copy of any prose file Claude writes.
