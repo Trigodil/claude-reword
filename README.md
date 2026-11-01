@@ -5,7 +5,7 @@ A `/reword` slash command for [Claude Code](https://claude.com/claude-code), plu
 You ask Claude to write something (an essay paragraph, notes, a Word document). Instead of showing Claude's own draft, it sends the draft to an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, and delivers that version, either in chat or straight into a file like `report.docx`.
 
 - Keeps facts, numbers, code, URLs and meaning unchanged.
-- **Word (.docx) support:** builds a new `.docx`, or rewords an existing one in place, keeping styles, tables, images and layout.
+- Word (.docx) support: builds a new `.docx`, or rewords an existing one in place, keeping styles, tables, images and layout.
 - It checks that numbers, URLs and code survived. If not, the rewrite is discarded.
 - Reword mode stays on for the session until you say "stop".
 - With no API key set, it prints `no api my guy` and sends nothing anywhere.
