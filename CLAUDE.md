@@ -1,89 +1,103 @@
-# reword-tool
+# Setup instructions for Claude
 
-A Claude Code slash command (`/reword`) plus a Python script that sends prose, LaTeX or Word (.docx) documents
-through an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, then delivers that
-version instead of Claude's own draft. LaTeX commands and math are checked and the
-rewrite is discarded if they change.
+This repo is a `/reword` slash command for Claude Code plus the Python tool behind it. The user has just cloned it and wants it working. When they ask you to set it up (or open this repo and say "set this up"), follow the steps below in order, and tell them what you did at the end.
 
-## Rules for Claude working in this repo
+What it does: the user runs `/reword <what to write>`. You write the content, send it through an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, and deliver that version, either in chat or into a file (`.docx`, `.tex`, `.md`, `.txt`).
 
-- **Never read, print, commit or push any real API key or `reword.env`.** Only
-  `hooks/reword.env` (empty template) belongs in git. `.gitignore` blocks `*.env`.
-- Before any commit, confirm `git status` shows no `.env` file staged.
+## 1. Install the files
 
-## Setup (tell the user to do these steps, or do them for them)
+From the repo root, run:
 
-1. **Install the files** from the repo root:
-   ```bash
-   ./install.sh
-   ```
-   This copies into `~/.claude/`:
-   - `hooks/paraphrase_review.py`, `hooks/reword_prompt.txt`
-   - `commands/reword.md`, `commands/reword_paraphrased.md`
-   - `hooks/reword.env` (the empty template, copied only if you have none yet; an existing one is never overwritten)
+```bash
+./install.sh
+```
 
-2. **Add an API key.** The user edits `~/.claude/hooks/reword.env` themselves
-   (Claude must not open it) and fills in at least one of `OPENAI_API_KEY`,
-   `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`. Keys in this file take priority over any exported in
-   the shell, so a stale `OPENAI_API_KEY` in the environment can't shadow it. Shell keys are
-   only a fallback when the file has none. With no key set the script prints `no api my guy` and
-   sends nothing anywhere.
+It copies into `~/.claude/`:
+- `hooks/paraphrase_review.py` and `hooks/reword_prompt.txt`
+- `commands/reword.md` and `commands/reword_paraphrased.md`
+- `hooks/reword.env`, created from the empty template **only if the user has none yet**. An existing one is never overwritten.
 
-3. **Use it.** Restart Claude Code, then run `/reword <what to write>`, for example
-   `/reword one paragraph on jets` or `/reword intro section in paper.tex` or `/reword summary in report.docx`.
-   Reword mode then stays on for the session; say "stop" to turn it off.
-   Pick a provider/model by naming it in the request ("with deepseek-reasoner").
-   Default is OpenAI `gpt-6-luna`; change the default table at the top of
-   `paraphrase_review.py` (`PROVIDERS`) if your account uses other models.
+Requires `python3` (standard library only, nothing to pip install). If `python3` is missing, tell the user to install it.
 
-4. **(Optional) auto-paraphrase hook.** To have every Write/Edit of a `.md/.tex/.txt/.rst`
-   file produce a `<name>_paraphrased<ext>` copy plus a diff, add this to
-   `~/.claude/settings.json`. Note this makes `/reword` file delivery use `cp`/`cat` so
-   the hook does not reword twice (the command already does this):
-   ```json
-   {
-     "hooks": {
-       "PostToolUse": [
-         {
-           "matcher": "Write|Edit",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "python3 -I ~/.claude/hooks/paraphrase_review.py",
-               "timeout": 60,
-               "statusMessage": "Paraphrasing prose file..."
-             }
-           ]
-         }
-       ]
-     }
-   }
-   ```
+## 2. Have the user add their API key
 
-## docx notes
+**Do not open, read, print or edit `~/.claude/hooks/reword.env`.** It holds the user's secret key. Ask the user to do this step themselves:
 
-- Python 3 standard library only, no extra packages to install.
-- For an existing `.docx`, paragraph text goes into the first run of each paragraph, so mixed
-  formatting *inside* one paragraph (e.g. a single bold word) takes the first run's style.
-  Tables are reworded; headers, footers and footnotes are left alone.
-- For new content, `/reword ... in report.docx` builds a plain `.docx`. Output is always a new
-  file, and `/reword` asks before overwriting an existing one.
+> Open `~/.claude/hooks/reword.env` and paste in at least one key:
+> `OPENAI_API_KEY=sk-...`, `DEEPSEEK_API_KEY=...` or `ANTHROPIC_API_KEY=sk-ant-...`
+
+Notes to pass on:
+- Keys in this file take priority over keys exported in the shell, so a stale `OPENAI_API_KEY` in the environment can't shadow it.
+- With no key set, the tool prints `no api my guy` and sends nothing anywhere.
+- If the user would rather not edit the file, they can export the key in the shell that launches Claude Code. It is only used when the file has none.
+
+Wait for the user to confirm they've added the key before step 3.
+
+## 3. Check that it works
+
+Run this small test. It prints only a status line, never the key:
+
+```bash
+printf 'Planes fly fast at high altitude.\n' > /tmp/reword_test.txt
+python3 -I ~/.claude/hooks/paraphrase_review.py --reword /tmp/reword_test.txt /tmp/reword_test_out.txt
+```
+
+- `[reworded with <provider>] saved to ...` → working.
+- `no api my guy` → no key found; go back to step 2.
+- `... call failed: HTTP Error 401` → the key is invalid or belongs to a different provider; ask the user to check it. Do not go looking for the key yourself.
+
+## 4. Tell the user how to use it
+
+Restart Claude Code (or open a new session), then:
+
+```
+/reword one paragraph on jets
+/reword summary in report.docx
+/reword intro section in paper.tex
+```
+
+- Reword mode stays on for the session; they say "stop" to turn it off.
+- Name a provider or model in the request to override the default, e.g. `/reword ... with deepseek-reasoner`. The default is OpenAI `gpt-6-luna`; if their account uses other models, edit the `PROVIDERS` table at the top of `~/.claude/hooks/paraphrase_review.py`.
+- The rewrite prompt is editable in `~/.claude/hooks/reword_prompt.txt`.
+
+## 5. Optional: auto-paraphrase hook
+
+Only do this if the user asks. It makes every Write/Edit of a `.md`, `.tex`, `.txt` or `.rst` file also produce a `<name>_paraphrased<ext>` copy plus a diff. Add this to `~/.claude/settings.json`, merging with any existing `hooks` instead of replacing them, and show the user the change first:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I ~/.claude/hooks/paraphrase_review.py",
+            "timeout": 60,
+            "statusMessage": "Paraphrasing prose file..."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## How the tool treats files (for your reference)
+
+- **Safety checks:** if a rewrite changes numbers, URLs, LaTeX commands or math, it is discarded and the original is kept.
+- **`.docx` input:** only paragraph text is replaced; styles, tables, images and layout are kept. Text in tables is reworded; headers, footers and footnotes are left alone. Mixed formatting inside one paragraph (e.g. one bold word) takes the first run's style.
+- **`.docx` output:** always written as a new file. Ask before overwriting an existing one.
+- When delivering into a file, use `cp`/`cat` through Bash, not the Edit/Write tools (those would trigger the auto-hook and reword twice).
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `hooks/paraphrase_review.py` | The tool. `--reword in out` CLI mode, plus the PostToolUse hook mode |
-| `hooks/reword_prompt.txt` | Editable system prompt for the rewrite |
-| `hooks/reword.env` | Empty key template, copied to `~/.claude/hooks/reword.env` by install.sh. Keep it empty in git |
-| `commands/reword.md` | The `/reword` slash command |
+| `hooks/paraphrase_review.py` | The tool (`--reword IN OUT` CLI mode, plus hook mode) |
+| `hooks/reword_prompt.txt` | Editable rewrite prompt |
+| `hooks/reword.env` | Empty key template, copied to `~/.claude/hooks/` by `install.sh` |
+| `commands/reword.md` | The `/reword` command |
 | `commands/reword_paraphrased.md` | Variant of the same command with alternate wording |
 | `install.sh` | Copies everything into `~/.claude/` |
-
-## Testing
-
-```bash
-printf 'Jets push air backward to move forward.\n' > /tmp/in.txt
-python3 -I ~/.claude/hooks/paraphrase_review.py --reword /tmp/in.txt /tmp/out.txt
-```
-Expect `[reworded with <provider>] saved to /tmp/out.txt`, or `no api my guy` if no key is set.
