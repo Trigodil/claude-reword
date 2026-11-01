@@ -1,0 +1,13 @@
+# Secrets: never commit
+*.env
+.env*
+!*.env.example
+!.env.example
+hooks/reword.env
+settings.json
+settings.local.json
+*.key
+*.pem
+# Misc
+__pycache__/
+*.pyc
