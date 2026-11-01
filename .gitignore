@@ -1,13 +1,10 @@
-# Secrets: never commit
+# Secrets: never commit real keys. Only the empty template hooks/reword.env is tracked.
 *.env
 .env*
-!*.env.example
-!.env.example
-hooks/reword.env
+!hooks/reword.env
 settings.json
 settings.local.json
 *.key
 *.pem
-# Misc
 __pycache__/
 *.pyc

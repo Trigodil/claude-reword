@@ -8,7 +8,7 @@ rewrite is discarded if they change.
 ## Rules for Claude working in this repo
 
 - **Never read, print, commit or push any real API key or `reword.env`.** Only
-  `hooks/reword.env.example` (dummy values) belongs in git. `.gitignore` blocks `*.env`.
+  `hooks/reword.env` (empty template) belongs in git. `.gitignore` blocks `*.env`.
 - Before any commit, confirm `git status` shows no `.env` file staged.
 
 ## Setup (tell the user to do these steps, or do them for them)
@@ -20,7 +20,7 @@ rewrite is discarded if they change.
    This copies into `~/.claude/`:
    - `hooks/paraphrase_review.py`, `hooks/reword_prompt.txt`
    - `commands/reword.md`, `commands/reword_paraphrased.md`
-   - `hooks/reword.env` created from `hooks/reword.env.example` (only if missing)
+   - `hooks/reword.env` created from `hooks/reword.env` (only if missing; an existing one is never overwritten)
 
 2. **Add an API key.** The user edits `~/.claude/hooks/reword.env` themselves
    (Claude must not open it) and fills in at least one of `OPENAI_API_KEY`,
@@ -65,7 +65,7 @@ rewrite is discarded if they change.
 |---|---|
 | `hooks/paraphrase_review.py` | The tool. `--reword in out` CLI mode, plus the PostToolUse hook mode |
 | `hooks/reword_prompt.txt` | Editable system prompt for the rewrite |
-| `hooks/reword.env.example` | Dummy key template (copy to `reword.env`, gitignored) |
+| `hooks/reword.env` | Empty key template, copied to `~/.claude/hooks/reword.env` by install.sh. Keep it empty in git |
 | `commands/reword.md` | The `/reword` slash command |
 | `commands/reword_paraphrased.md` | Variant of the same command with alternate wording |
 | `install.sh` | Copies everything into `~/.claude/` |
