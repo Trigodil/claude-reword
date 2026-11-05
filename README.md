@@ -1,5 +1,8 @@
 # claude-reword
 
+#Use case
+I did this for fun because I had a free weekend with nothing better to do, I live solving specific engineering problems, so I found a solution for the watermark pipeline for fun, of-course you can use this as you like. This is a hobby project for me.
+
 A `/reword` slash command for [Claude Code](https://claude.com/claude-code), plus the small Python tool behind it.
 
 You ask Claude to write something (an essay paragraph, notes, a Word document). Instead of showing Claude's own draft, it sends the draft to an LLM API (OpenAI, DeepSeek or Anthropic) to be reworded, and delivers that version, either in chat or straight into a file like `report.docx`.
