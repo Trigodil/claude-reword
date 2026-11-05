@@ -1,7 +1,7 @@
 # claude-reword
 
 ## Use case
-I did this for fun because I had a free weekend with nothing better to do, I live solving specific engineering problems, so I found a solution for the watermark pipeline for fun, of-course you can use this as you like. This is a hobby project for me.
+I did this for fun because I had a free weekend with nothing better to do, I love solving specific engineering problems, so I found a solution for the watermark pipeline for fun, of-course you can use this as you like. This is essentially a hobby project for me.
 
 A `/reword` slash command for [Claude Code](https://claude.com/claude-code), plus the small Python tool behind it.
 
