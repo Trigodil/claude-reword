@@ -104,8 +104,9 @@ def post(url, headers, body):
         return json.load(r)
 
 
-def rewrite(text, name):
+def rewrite(text, name, note=""):
     key_env, base, default_model = PROVIDERS[name]
+    prompt = PROMPT + note
     key = os.environ[key_env]
     model = os.environ.get("PARAPHRASE_MODEL", default_model)
     base = os.environ.get("PARAPHRASE_BASE_URL", base).rstrip("/")
@@ -114,7 +115,7 @@ def rewrite(text, name):
             base + "/v1/messages",
             {"x-api-key": key, "anthropic-version": "2023-06-01",
              "content-type": "application/json"},
-            {"model": model, "max_tokens": 16000, "system": PROMPT,
+            {"model": model, "max_tokens": 16000, "system": prompt,
              "messages": [{"role": "user", "content": text}]},
         )
         return "".join(b.get("text", "") for b in r["content"])
@@ -122,10 +123,137 @@ def rewrite(text, name):
         base + "/chat/completions",
         {"Authorization": "Bearer " + key, "content-type": "application/json"},
         {"model": model,
-         "messages": [{"role": "system", "content": PROMPT},
+         "messages": [{"role": "system", "content": prompt},
                       {"role": "user", "content": text}]},
     )
     return r["choices"][0]["message"]["content"]
+
+
+MASK_NOTE = (
+    " Tokens like ⟦12⟧ stand for math or markup: keep every one exactly as written, "
+    "in the same order, and reword only the prose around them."
+)
+MASK_RE = re.compile(r"⟦(\d+)⟧")
+CMD_RE = re.compile(r"\\([A-Za-z]+\*?|.)", re.S)
+VERBATIM_ENVS = {
+    "equation", "align", "gather", "multline", "eqnarray", "displaymath", "math",
+    "alignat", "flalign", "verbatim", "lstlisting", "tabular", "array", "tikzpicture",
+}
+RAW_ARG_CMDS = {
+    "begin", "end", "label", "ref", "eqref", "cite", "pageref", "url", "href",
+    "usepackage", "documentclass", "newcommand", "renewcommand", "newtheorem",
+    "newenvironment", "theoremstyle", "input", "include", "includegraphics",
+    "bibliography", "bibliographystyle", "setlength", "DeclareMathOperator",
+}
+
+
+def skip_group(s, i, open_ch, close_ch):
+    """Index just past the balanced group starting at s[i] == open_ch."""
+    depth = 0
+    while i < len(s):
+        if s[i] == "\\":
+            i += 2
+            continue
+        depth += (s[i] == open_ch) - (s[i] == close_ch)
+        i += 1
+        if depth == 0:
+            return i
+    return len(s)
+
+
+def mask_markup(s):
+    """Swap math, commands, braces and comments for ⟦n⟧ so only prose is sent."""
+    kept, out, i, n = [], [], 0, len(s)
+
+    def hold(chunk):
+        kept.append(chunk)
+        out.append("⟦%d⟧" % (len(kept) - 1))
+
+    start = re.search(r"\\begin\{document\}", s)
+    if start:
+        hold(s[:start.end()])
+        i = start.end()
+    while i < n:
+        c = s[i]
+        if s.startswith("```", i):
+            j = s.find("```", i + 3)
+            j = n if j < 0 else j + 3
+        elif c == "%":
+            j = s.find("\n", i)
+            j = n if j < 0 else j
+        elif s.startswith("$$", i):
+            j = s.find("$$", i + 2)
+            j = n if j < 0 else j + 2
+        elif c == "$":
+            j = i + 1
+            while j < n and not (s[j] == "$" and s[j - 1] != "\\"):
+                j += 1
+            j = min(j + 1, n)
+        elif s.startswith("\\[", i) or s.startswith("\\(", i):
+            j = s.find("\\]" if s[i + 1] == "[" else "\\)", i + 2)
+            j = n if j < 0 else j + 2
+        elif c == "\\":
+            name = CMD_RE.match(s, i).group(1)
+            j = i + 1 + len(name)
+            env = re.match(r"\{([A-Za-z]+\*?)\}", s[j:])
+            if name == "begin" and env and env.group(1).rstrip("*") in VERBATIM_ENVS:
+                end = s.find("\\end{%s}" % env.group(1), j)
+                j = n if end < 0 else end + len("\\end{%s}" % env.group(1))
+            elif name in RAW_ARG_CMDS:
+                while j < n and s[j] in "[{":
+                    j = skip_group(s, j, s[j], "]" if s[j] == "[" else "}")
+            else:
+                while j < n and s[j] == "[":
+                    j = skip_group(s, j, "[", "]")
+                if j < n and s[j] == "{":
+                    j += 1
+        elif c in "{}":
+            j = i + 1
+        else:
+            out.append(c)
+            i += 1
+            continue
+        hold(s[i:j])
+        i = j
+    return "".join(out), kept
+
+
+def compact_markup(masked, kept):
+    """Merge tokens separated only by spaces or punctuation into one token."""
+    merged = []
+
+    def join(m):
+        merged.append(MASK_RE.sub(lambda t: kept[int(t.group(1))], m.group(0)))
+        return "⟦%d⟧" % (len(merged) - 1)
+
+    return re.sub(r"⟦\d+⟧(?:[\s,.;:()\[\]]*⟦\d+⟧)*", join, masked), merged
+
+
+def rewrite_prose(text, name):
+    """Reword only the prose of `text`, paragraph by paragraph.
+
+    Returns (new_text, kept_count): paragraphs whose tokens or numbers changed keep
+    their original wording, and kept_count says how many did."""
+    masked, kept = compact_markup(*mask_markup(text))
+    paras = re.split(r"(\n\s*\n)", masked)
+    prose = [i for i in range(0, len(paras), 2)
+             if re.search(r"[A-Za-z]{2}", MASK_RE.sub("", paras[i]))]
+    if not prose:
+        return text, 0
+    payload = "\n\n".join("<<%d>> %s" % (i, paras[i]) for i in prose)
+    reply = rewrite(payload, name, MASK_NOTE if kept else "")
+    parts = re.split(r"<<(\d+)>>", reply)
+    got = {int(parts[k]): parts[k + 1].strip() for k in range(1, len(parts) - 1, 2)}
+    fallback = 0
+    for i in prose:
+        new = got.get(i)
+        if (new is None or MASK_RE.findall(new) != MASK_RE.findall(paras[i])
+                or guard_tokens(new) != guard_tokens(paras[i])):
+            fallback += 1
+            continue
+        lead = paras[i][:len(paras[i]) - len(paras[i].lstrip())]
+        paras[i] = lead + new + paras[i][len(paras[i].rstrip()):]
+    return MASK_RE.sub(lambda m: kept[int(m.group(1))], "".join(paras)), fallback
 
 
 def tex_tokens(s):
@@ -265,10 +393,14 @@ def reword_cli(path, out_path=None):
         print("too long to reword (%d chars, max %d)" % (len(text), MAX_CHARS))
         sys.exit(0)
     try:
-        new = rewrite(text, provider).strip("\n")
+        new, fallback = rewrite_prose(text, provider)
     except Exception as e:
         print("%s call failed: %s" % (provider, e))
         sys.exit(0)
+    new = new.strip("\n")
+    if fallback:
+        print("%d paragraph(s) kept their original wording (markup or numbers changed)."
+              % fallback)
     if tex_tokens(text) != tex_tokens(new):
         print("rewrite changed LaTeX commands or math, so it was discarded. "
               "Original left as is.")
@@ -312,9 +444,10 @@ def main():
     if not text.strip() or len(text) > MAX_CHARS:
         out()
     try:
-        new = rewrite(text, provider).strip("\n") + "\n"
+        new = rewrite_prose(text, provider)[0]
     except Exception as e:
         out("paraphrase hook: %s call failed (%s)" % (provider, e))
+    new = new.strip("\n") + "\n"
     if tex_tokens(text) != tex_tokens(new):
         out("paraphrase hook: rewrite changed LaTeX commands or math, discarded "
             "(%s)" % os.path.basename(path))
